@@ -1,0 +1,33 @@
+# Planning docs (not for public repo)
+hackathon.md
+blueprint.md
+plans/
+verify_mcp.py
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Sandbox and test data
+sandbox-content/
+.pytest_cache/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.python-version
+
+# IDE
+.vscode/
+.idea/
+.project
+.pydevproject
+.settings/

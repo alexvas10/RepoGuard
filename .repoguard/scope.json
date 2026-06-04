@@ -1,0 +1,22 @@
+{
+  "project_metadata": {
+    "name": "sandbox-repoguard",
+    "version": "1.0.0",
+    "description": "A Python/FastAPI backend API. No frontend code."
+  },
+  "boundaries": {
+    "allowed_tech_stack": ["Python", "FastAPI", "SQLite", "httpx", "pydantic"],
+    "banned_tech_stack": ["React", "Vue", "Angular", "PostgreSQL", "Kafka", "Node.js", "npm"],
+    "forbidden_patterns": [
+      "Hardcoded API keys or secrets in source code",
+      "Direct database manipulation outside of ORM or repository layer",
+      "Synchronous blocking calls inside async endpoint handlers",
+      "print() statements used for logging instead of the logging module"
+    ]
+  },
+  "auto_reject_criteria": [
+    "Addition of any frontend assets (HTML, CSS, JS, TSX) to this backend-only repository",
+    "Addition of package.json, node_modules, or any npm/yarn configuration",
+    "Modification of authentication or security middleware without the 'security-review' label on the MR"
+  ]
+}
