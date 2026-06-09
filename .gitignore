@@ -3,6 +3,8 @@ hackathon.md
 blueprint.md
 plans/
 verify_mcp.py
+handoff.md
+options.md
 
 # Secrets and local config
 .env

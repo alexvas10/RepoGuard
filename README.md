@@ -43,44 +43,45 @@ Receives production alerts. Performs forensic analysis to identify the breaking 
 ## Setup
 
 ### 1. Prerequisites
-- Google Cloud project with Vertex AI Agent Builder enabled
-- GitLab account with a PAT (`api` + `read_repository` scopes)
-- GitLab MCP enabled (Beta features on in GitLab settings)
+- Google Cloud project with Vertex AI API enabled
+- GitLab account with a PAT (`api` + `read_repository` + `write_repository` scopes)
+- Docker (for the GitLab MCP sidecar)
+- `gcloud` CLI authenticated to your project
 
 ### 2. Environment
 ```bash
 cp .env.example .env
-# fill in all values
+# fill in GITLAB_PAT, GITLAB_WEBHOOK_SECRET, GCP_PROJECT_ID, GITLAB_PROJECT_ID
 ```
 
-### 3. Create the Vertex AI Agent
-1. Go to Vertex AI Agent Builder → Create Agent
-2. Add GitLab MCP Tool:
-   - Endpoint: `https://gitlab.com/api/v4/mcp`
-   - Auth: Custom Header `Authorization: Bearer <GITLAB_PAT>`
-3. Paste contents of `system_prompt.md` as System Instructions
-4. Copy the Agent ID into your `.env` as `AGENT_ID`
+### 3. Enable required Google Cloud APIs
+```bash
+gcloud services enable run.googleapis.com firestore.googleapis.com aiplatform.googleapis.com --project=<GCP_PROJECT_ID>
+gcloud firestore databases create --location=us-central1 --project=<GCP_PROJECT_ID>
+```
 
-### 4. Set `DEMO_PROJECT_ID` in `main.py`
-Find your sandbox-repoguard project ID in GitLab (Settings → General) and set `DEMO_PROJECT_ID` at the top of `main.py`.
-
-### 5. Run locally
+### 4. Run locally
+The app requires the `@yoda.digital/gitlab-mcp-server` sidecar on port 3000. Start it first:
+```bash
+docker run -e GITLAB_TOKEN=<your-pat> -p 3000:3000 yodadigital/gitlab-mcp-server
+```
+Then run the API:
 ```bash
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-### 6. Deploy to Cloud Run
+### 5. Deploy to Cloud Run
 ```bash
 gcloud run deploy repoguard \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GITLAB_PAT=...,GITLAB_WEBHOOK_SECRET=...,GCP_PROJECT_ID=...,AGENT_ID=...
+  --set-env-vars GITLAB_PAT=...,GITLAB_WEBHOOK_SECRET=...,GCP_PROJECT_ID=...,GITLAB_PROJECT_ID=...
 ```
 
-### 7. Configure GitLab Webhook
-In `sandbox-repoguard` → Settings → Webhooks:
+### 6. Configure GitLab Webhook
+In your GitLab project → Settings → Webhooks:
 - URL: `https://<cloud-run-url>/webhook/gitlab`
 - Secret token: same as `GITLAB_WEBHOOK_SECRET`
 - Trigger: Merge request events
