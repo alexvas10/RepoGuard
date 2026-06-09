@@ -2,7 +2,7 @@
 
 An autonomous repository guardian that enforces architectural rules on GitLab Merge Requests and provides self-healing remediation for production incidents.
 
-Built for the [Google Cloud Rapid Agent Hackathon](https://devpost.com/software) — GitLab track. Mirrored to https://gitlab.com/alexvas10/repoguard 
+Built for the [Google Cloud Rapid Agent Hackathon](https://devpost.com/software) — GitLab track. Mirrored to [https://gitlab.com/alexvas10/repoguard ](https://gitlab.com/alexvas10-group/alexvas10-project#)
 
 ## Architecture
 
