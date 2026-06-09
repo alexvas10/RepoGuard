@@ -67,8 +67,8 @@ docker run -e GITLAB_TOKEN=<your-pat> -p 3000:3000 yodadigital/gitlab-mcp-server
 ```
 Then run the API:
 ```bash
-pip install -r requirements.txt
-uvicorn main:app --reload
+uv sync
+uv run uvicorn main:app --reload
 ```
 
 ### 5. Deploy to Cloud Run
