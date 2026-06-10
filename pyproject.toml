@@ -1,9 +1,13 @@
 [project]
 name = "repoguard"
 version = "0.1.0"
-description = "Add your description here"
+description = "An autonomous repository guardian that enforces architectural rules on GitLab Merge Requests and provides self-healing remediation for production incidents."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
+authors = [
+    { name = "Alexander Vasiliev", email = "alexvas10@gmail.com" }
+]
+keywords = ["agentic", "gitlab", "vertex-ai", "automation", "security"]
 dependencies = [
     "fastapi>=0.136.3",
     "flet[all,web]>=0.85.3",
