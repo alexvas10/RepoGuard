@@ -120,5 +120,3 @@ curl -X POST https://<cloud-run-url>/rollback/approve \
   -d '{"token": "<token>", "mr_iid": <mr_iid>}'
 ```
 
-## License
-MIT
