@@ -189,6 +189,39 @@ async def get_wiki_page_tool(project_id: int, slug: str) -> str:
     resp.raise_for_status()
     return resp.json().get("content", "Error: No content found in wiki page.")
 
+async def create_project_tool(name: str, namespace_id: Optional[int] = None, description: str = "") -> str:
+    """
+    Creates a new GitLab project.
+    - name: The name of the new project.
+    - namespace_id: The ID of the group or user namespace to create the project in.
+    - description: A short description of the project.
+    """
+    url = f"{settings.GITLAB_API_URL}/projects"
+    payload = {"name": name, "description": description, "initialize_with_readme": True}
+    if namespace_id:
+        payload["namespace_id"] = namespace_id
+    
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        resp = await client.post(url, headers=_get_headers(), json=payload)
+    resp.raise_for_status()
+    project = resp.json()
+    return json.dumps({"project_id": project["id"], "web_url": project["web_url"]})
+
+async def list_groups_tool(search: Optional[str] = None) -> str:
+    """Lists the groups the current user has access to."""
+    url = f"{settings.GITLAB_API_URL}/groups"
+    params = {"min_access_level": 30} # Developer or higher
+    if search:
+        params["search"] = search
+    
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            return await client.get(url, headers=_get_headers(), params=params)
+    resp = await _retry(_fetch)
+    resp.raise_for_status()
+    groups = [{"id": g["id"], "full_path": g["full_path"]} for g in resp.json()]
+    return json.dumps(groups)
+
 # ---------------------------------------------------------------------------
 # Event Logging Tools
 # ---------------------------------------------------------------------------
@@ -212,10 +245,10 @@ async def update_guardian_status_tool(mr_iid: int, status: str) -> str:
     return "Status updated successfully."
 
 async def create_multiple_files_tool(project_id: int, branch: str, commit_message: str, actions: list[dict[str, str]]) -> str:
-    \"\"\"
+    """
     Performs a bulk commit with multiple actions (create, update, delete, etc.).
     - actions: A list of dicts, each with 'action' (create, delete, move, update, chmod), 'file_path', and 'content'.
-    \"\"\"
+    """
     url = f"{settings.GITLAB_API_URL}/projects/{project_id}/repository/commits"
     payload = {
         "branch": branch,
