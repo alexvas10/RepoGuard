@@ -2,6 +2,7 @@ import os
 from google.adk.agents import Agent
 from google.adk.tools import FunctionTool
 from ...tools import create_multiple_files_tool
+from ...mcp_config import get_gitlab_mcp_toolset
 from .prompt import agent_instructions
 
 architect_agent = Agent(
@@ -10,6 +11,7 @@ architect_agent = Agent(
     description="Helps design and scaffold new repositories with best practices.",
     instruction=agent_instructions,
     tools=[
+        get_gitlab_mcp_toolset(),
         FunctionTool(create_multiple_files_tool)
     ]
 )

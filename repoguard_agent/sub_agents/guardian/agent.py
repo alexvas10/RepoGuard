@@ -6,6 +6,7 @@ from ...tools import (
     revert_commit_tool, create_mr_tool, post_mr_comment_tool,
     log_guardian_event_tool, update_guardian_status_tool
 )
+from ...mcp_config import get_gitlab_mcp_toolset
 from .prompt import agent_instructions
 
 guardian_agent = Agent(
@@ -14,6 +15,7 @@ guardian_agent = Agent(
     description="Performs forensic analysis on production alerts and provisions auto-remediation rollbacks.",
     instruction=agent_instructions,
     tools=[
+        get_gitlab_mcp_toolset(),
         FunctionTool(get_commits_in_window_tool),
         FunctionTool(get_commit_diff_tool),
         FunctionTool(create_branch_tool),

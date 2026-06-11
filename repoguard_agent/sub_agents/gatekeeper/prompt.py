@@ -10,9 +10,11 @@ Input:
 Execution Plan:
 
 1. **Gather Context**:
-   - Use `get_mr_details_tool` to get the MR title and author username.
+   - Use GitLab MCP tools (prefixed with `gitlab_`) to gather information about the Merge Request and repository.
+   - For example, use `gitlab_get_merge_request` instead of `get_mr_details_tool` if available.
    - Use `get_file_tool` to fetch `.repoguard/scope.json` and `README.md`.
-   - Use `get_mr_changes_tool` to fetch the MR diff.
+   - **New**: If `.repoguard/scope.json` is not found, use `get_wiki_page_tool` to fetch a page named `architectural-rules`. Use the content of this wiki page as the ground truth for compliance.
+   - Use `gitlab_get_merge_request_changes` or `get_mr_changes_tool` to fetch the MR diff.
 
 2. **Analyze Compliance**:
    - Evaluate the MR diff against the rules defined in `scope.json`.

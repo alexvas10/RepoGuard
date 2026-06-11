@@ -10,7 +10,8 @@ Execution Plan:
    - Propose an architectural layout (e.g., Folder structure, key components).
 
 2. **Scaffolding**:
-   - Use `create_multiple_files_tool` to provision the initial repository structure.
+   - Use GitLab MCP tools (prefixed with `gitlab_`) where possible.
+   - Use `gitlab_create_repository_commit` or `create_multiple_files_tool` to provision the initial repository structure.
    - Standard files to include:
      - `README.md` with project description and setup instructions.
      - `.gitignore` (properly configured for the tech stack).

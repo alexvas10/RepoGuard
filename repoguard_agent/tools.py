@@ -173,6 +173,22 @@ async def post_mr_comment_tool(project_id: int, merge_request_iid: int, body: st
     resp.raise_for_status()
     return f"Successfully posted comment on MR !{merge_request_iid}"
 
+async def get_wiki_page_tool(project_id: int, slug: str) -> str:
+    """
+    Retrieves the content of a GitLab Wiki page.
+    - project_id: The ID of the GitLab project.
+    - slug: The slug (URL-friendly name) of the wiki page (e.g., 'home', 'architectural-rules').
+    """
+    url = f"{settings.GITLAB_API_URL}/projects/{project_id}/wikis/{slug}"
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            return await client.get(url, headers=_get_headers())
+    resp = await _retry(_fetch)
+    if resp.status_code == 404:
+        return f"Error: Wiki page '{slug}' not found."
+    resp.raise_for_status()
+    return resp.json().get("content", "Error: No content found in wiki page.")
+
 # ---------------------------------------------------------------------------
 # Event Logging Tools
 # ---------------------------------------------------------------------------

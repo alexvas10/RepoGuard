@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     GCP_PROJECT_ID: str = ""
     GCP_LOCATION: str = "us-central1"
     GEMINI_MODEL: str = "gemini-2.5-flash-preview-05-20"
-    MCP_SERVER_URL: str = "http://localhost:3000"
+    MCP_SERVER_URL: str = "https://gitlab.com/api/v4/mcp"
 
     class Config:
         env_file = ".env"
