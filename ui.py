@@ -2,6 +2,7 @@ import asyncio
 import flet as ft
 from core.events import get_gatekeeper_events, get_guardian_events
 from core.config import settings, is_configured
+from repoguard_agent.agent import invoke_root_agent
 
 # --- Themes & Colors ---
 BG_COLOR = "#0f172a"
@@ -163,17 +164,43 @@ async def ArchitectPage(page: ft.Page):
         ], alignment=ft.MainAxisAlignment.END))
         page.update()
         
-        # Placeholder for Architect Agent
-        await asyncio.sleep(0.5)
-        chat_list.controls.append(ft.Row([
+        # Call Architect Agent via Orchestrator
+        project_id = settings.GITLAB_PROJECT_ID or 0
+        agent_prompt = f"Architect/Scaffolding Request: project_id={project_id}, user_prompt='{msg}'"
+        
+        # Show a loading indicator
+        loading_msg = ft.Row([
             ft.Container(
-                content=ft.Text("I'm the Architect. I'll help you scaffold your project once Module 3 is fully implemented.", color=TEXT_COLOR),
+                content=ft.Row([
+                    ft.ProgressRing(width=16, height=16, stroke_width=2),
+                    ft.Text(" Architect is thinking...", color=SUB_TEXT_COLOR, size=12, italic=True)
+                ]),
                 bgcolor=CARD_COLOR,
                 padding=10,
                 border=ft.Border.all(1, BORDER_COLOR),
                 border_radius=ft.BorderRadius.only(top_left=10, top_right=10, bottom_right=10)
             )
-        ]))
+        ])
+        chat_list.controls.append(loading_msg)
+        page.update()
+
+        try:
+            response = await invoke_root_agent(agent_prompt)
+            chat_list.controls.remove(loading_msg)
+            chat_list.controls.append(ft.Row([
+                ft.Container(
+                    content=ft.Markdown(response, selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB),
+                    bgcolor=CARD_COLOR,
+                    padding=10,
+                    border=ft.Border.all(1, BORDER_COLOR),
+                    border_radius=ft.BorderRadius.only(top_left=10, top_right=10, bottom_right=10)
+                )
+            ]))
+        except Exception as exc:
+            if loading_msg in chat_list.controls:
+                chat_list.controls.remove(loading_msg)
+            chat_list.controls.append(ft.Text(f"Error: {exc}", color="red"))
+        
         page.update()
 
     return ft.Column([

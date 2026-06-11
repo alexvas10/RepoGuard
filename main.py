@@ -9,9 +9,9 @@ from fastapi.responses import HTMLResponse
 
 from core.config import settings
 from core.events import get_gatekeeper_events, get_guardian_events
-from core.gatekeeper import process_mr
-from core.guardian import approve_rollback, pending_rollbacks, process_alert
+from core.guardian import approve_rollback, pending_rollbacks
 from core.models import AlertPayload, RollbackApproval
+from repoguard_agent.agent import invoke_root_agent
 from ui import main as flet_main
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
@@ -69,8 +69,9 @@ async def gitlab_webhook(request: Request, background_tasks: BackgroundTasks):
     project_id = payload["project"]["id"]
     mr_iid = attrs["iid"]
 
-    background_tasks.add_task(process_mr, project_id, mr_iid)
-    logger.info("Queued Gatekeeper analysis for MR !%s in project %s", mr_iid, project_id)
+    agent_prompt = f"GitLab Merge Request Event: project_id={project_id}, mr_iid={mr_iid}"
+    background_tasks.add_task(invoke_root_agent, agent_prompt)
+    logger.info("Queued Gatekeeper agent review for MR !%s in project %s", mr_iid, project_id)
     return {"status": "accepted", "mr_iid": mr_iid, "project_id": project_id}
 
 
@@ -86,8 +87,10 @@ async def alerts_webhook(request: Request, payload: AlertPayload, background_tas
     if not settings.GITLAB_PROJECT_ID:
         raise HTTPException(status_code=503, detail="GITLAB_PROJECT_ID not configured")
     base_url = str(request.base_url).rstrip("/")
-    background_tasks.add_task(process_alert, settings.GITLAB_PROJECT_ID, payload, None, base_url)
-    logger.info("Queued Guardian analysis for alert: %s at %s", payload.error_type, payload.timestamp)
+    
+    agent_prompt = f"Production Alert: base_url={base_url}, project_id={settings.GITLAB_PROJECT_ID}, alert_payload={payload.model_dump_json()}"
+    background_tasks.add_task(invoke_root_agent, agent_prompt)
+    logger.info("Queued Guardian agent remediation for alert: %s at %s", payload.error_type, payload.timestamp)
     return {"status": "accepted", "error_type": payload.error_type}
 
 
@@ -198,7 +201,8 @@ async def demo_trigger_alert(request: Request, background_tasks: BackgroundTasks
     )
 
     base_url = str(request.base_url).rstrip("/")
-    background_tasks.add_task(process_alert, settings.GITLAB_PROJECT_ID, payload, BAD_COMMIT_SHA, base_url)
+    agent_prompt = f"Production Alert: base_url={base_url}, project_id={settings.GITLAB_PROJECT_ID}, alert_payload={payload.model_dump_json()}"
+    background_tasks.add_task(invoke_root_agent, agent_prompt)
     return {"status": "demo alert fired", "payload": payload.model_dump()}
 
 
