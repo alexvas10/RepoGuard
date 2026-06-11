@@ -130,6 +130,8 @@ async def invoke_agent(prompt: str, tools=None) -> str:
         ) -> str:
             """Post a comment on a GitLab merge request."""
             _tool_called[0] = True
+            if "Powered by RepoGuard" not in body:
+                body = body + "\n\n---\n*Powered by RepoGuard · Gemini 2.5 Flash*"
             result = await mcp.call_tool("create_merge_request_note", {
                 "project_id": project_id,
                 "merge_request_iid": merge_request_iid,
