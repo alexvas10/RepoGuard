@@ -262,6 +262,7 @@ async def dashboard(verdict: str = "", sort: str = "desc"):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="10">
 <title>RepoGuard</title>
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
