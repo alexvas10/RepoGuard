@@ -10,8 +10,15 @@ class Settings(BaseSettings):
 
     GCP_PROJECT_ID: str = ""
     GCP_LOCATION: str = "us-central1"
-    GEMINI_MODEL: str = "gemini-2.5-flash-preview-05-20"
-    MCP_SERVER_URL: str = "https://gitlab.com/api/v4/mcp"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    MCP_SERVER_URL: str = "https://gitlab.com"
+    GOOGLE_GENAI_USE_VERTEXAI: bool = True
+
+    # GitLab OAuth 2.0 (for official MCP)
+    GITLAB_CLIENT_ID: str = ""
+    GITLAB_CLIENT_SECRET: str = ""
+    GITLAB_ACCESS_TOKEN: str = ""
+    GITLAB_REFRESH_TOKEN: str = ""
 
     class Config:
         env_file = ".env"
@@ -19,6 +26,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+def reload_settings():
+    """Reloads settings from environment variables."""
+    global settings
+    settings = Settings()
 
 def is_configured() -> bool:
     """Check if the critical credentials are set."""

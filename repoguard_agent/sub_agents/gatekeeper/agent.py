@@ -10,7 +10,7 @@ from ...mcp_config import get_gitlab_mcp_toolset
 from .prompt import agent_instructions
 
 gatekeeper_agent = Agent(
-    model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-preview-05-20"),
+    model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
     name="gatekeeper_agent",
     description="Analyzes Merge Requests for architectural compliance and technical violations.",
     instruction=agent_instructions,

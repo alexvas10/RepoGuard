@@ -1,6 +1,15 @@
 import os
 import logging
 import uuid
+from core.config import settings
+
+# --- Configure Vertex AI ---
+# We do this BEFORE other imports to ensure the SDK picks up the environment
+if settings.GOOGLE_GENAI_USE_VERTEXAI:
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
+    os.environ["GOOGLE_CLOUD_PROJECT"] = settings.GCP_PROJECT_ID
+    os.environ["GOOGLE_CLOUD_LOCATION"] = settings.GCP_LOCATION
+
 from google.adk.agents import Agent
 from google.adk.planners import BuiltInPlanner
 from google.adk.runners import Runner
@@ -17,7 +26,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 root_agent = Agent(
-    model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-preview-05-20"),
+    model=settings.GEMINI_MODEL,
     name="repoguard_orchestrator",
     description="Orchestrates repository protection and remediation workflows.",
     instruction=root_agent_instruction,
@@ -29,6 +38,12 @@ root_agent = Agent(
 
 async def invoke_root_agent(prompt_text: str) -> str:
     """Helper to run a prompt through the root orchestrator agent."""
+    # Ensure agents are using the latest model from settings
+    root_agent.model = settings.GEMINI_MODEL
+    gatekeeper_agent.model = settings.GEMINI_MODEL
+    guardian_agent.model = settings.GEMINI_MODEL
+    architect_agent.model = settings.GEMINI_MODEL
+
     session_service = InMemorySessionService()
     runner = Runner(agent=root_agent, app_name="repoguard", session_service=session_service)
     

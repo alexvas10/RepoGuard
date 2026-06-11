@@ -1,4 +1,4 @@
-from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, SseConnectionParams
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, SseConnectionParams, McpOauthClientConfig
 from core.config import settings
 
 def get_gitlab_mcp_toolset():
@@ -7,16 +7,34 @@ def get_gitlab_mcp_toolset():
     connection_params = SseConnectionParams(
         url=settings.MCP_SERVER_URL
     )
+
+    oauth_config = McpOauthClientConfig(
+        client_id=settings.GITLAB_CLIENT_ID,
+        client_secret=settings.GITLAB_CLIENT_SECRET,
+        auth_url="https://gitlab.com/oauth/authorize",
+        token_url="https://gitlab.com/oauth/token",
+        user_info_url="https://gitlab.com/oauth/userinfo"
+    )
     
-    # We provide the GitLab PAT via the header_provider
+    # Provide the token (OAuth preferred, then PAT)
     def header_provider(_context):
-        return {
-            "Authorization": f"Bearer {settings.GITLAB_PAT}",
+        headers = {
+            "X-Gitlab-Mcp-Server-Tool-Name-Prefix": "gitlab_",
             "Content-Type": "application/json",
+            "User-Agent": "RepoGuard-Agent/1.0"
         }
+        
+        # Priority 1: OAuth Access Token (The Official Way)
+        if settings.GITLAB_ACCESS_TOKEN:
+            headers["Authorization"] = f"Bearer {settings.GITLAB_ACCESS_TOKEN}"
+        # Priority 2: Personal Access Token (Legacy/Fallback)
+        elif settings.GITLAB_PAT:
+            headers["PRIVATE-TOKEN"] = settings.GITLAB_PAT
+            
+        return headers
     
     return McpToolset(
         connection_params=connection_params,
-        tool_name_prefix="gitlab_",
+        oauth_client_config=oauth_config,
         header_provider=header_provider
     )

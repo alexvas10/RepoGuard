@@ -5,6 +5,7 @@ plans/
 verify_mcp.py
 handoff.md
 options.md
+.dev/
 
 # Secrets and local config
 .env

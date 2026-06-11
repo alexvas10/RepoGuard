@@ -1,7 +1,8 @@
 import asyncio
+import httpx
 import flet as ft
 from core.events import get_gatekeeper_events, get_guardian_events
-from core.config import settings, is_configured
+from core.config import settings, is_configured, reload_settings
 from repoguard_agent.agent import invoke_root_agent
 
 # --- Themes & Colors ---
@@ -220,16 +221,53 @@ async def ArchitectPage(page: ft.Page):
     ], spacing=20, expand=True)
 
 async def SettingsPage(page: ft.Page):
+    reload_settings() # Ensure latest settings are loaded
     gitlab_pat = ft.TextField(label="GitLab PAT", value=settings.GITLAB_PAT, password=True, can_reveal_password=True, border_color=BORDER_COLOR)
     gcp_project = ft.TextField(label="GCP Project ID", value=settings.GCP_PROJECT_ID, border_color=BORDER_COLOR)
     gcp_location = ft.TextField(label="GCP Location", value=settings.GCP_LOCATION, border_color=BORDER_COLOR)
-    gemini_model = ft.TextField(label="Gemini Model", value=settings.GEMINI_MODEL, border_color=BORDER_COLOR)
+    use_vertex = ft.Checkbox(label="Use Vertex AI (GCP Mode)", value=settings.GOOGLE_GENAI_USE_VERTEXAI)
+    gemini_model = ft.Dropdown(
+        label="Gemini Model",
+        value=settings.GEMINI_MODEL or "gemini-2.5-flash",
+        options=[
+            ft.dropdown.Option("gemini-3.5-flash"),
+            ft.dropdown.Option("gemini-3.1-flash-lite"),
+            ft.dropdown.Option("gemini-3.1-flash-image"),
+            ft.dropdown.Option("gemini-3.1-pro-preview"),
+            ft.dropdown.Option("gemini-2.5-flash"),
+            ft.dropdown.Option("gemini-2.5-pro"),
+        ],
+        border_color=BORDER_COLOR
+    )
+
+    gitlab_status = ft.Text(
+        "GitLab OAuth: " + ("✅ Connected" if settings.GITLAB_ACCESS_TOKEN else "❌ Disconnected"),
+        color="green" if settings.GITLAB_ACCESS_TOKEN else "red",
+        size=12
+    )
+
+    async def start_gitlab_oauth(e):
+        # We call our own API to get the login URL
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(f"http://localhost:8000/auth/login")
+                if resp.status_code == 200:
+                    url = resp.json()["login_url"]
+                    await page.launch_url(url)
+                else:
+                    page.snack_bar = ft.SnackBar(ft.Text(f"Failed to start OAuth: {resp.text}"))
+                    page.snack_bar.open = True
+            except Exception as exc:
+                page.snack_bar = ft.SnackBar(ft.Text(f"Error connecting to auth server: {exc}"))
+                page.snack_bar.open = True
+            page.update()
 
     async def save_settings(e):
         settings.GITLAB_PAT = gitlab_pat.value
         settings.GCP_PROJECT_ID = gcp_project.value
         settings.GCP_LOCATION = gcp_location.value
         settings.GEMINI_MODEL = gemini_model.value
+        settings.GOOGLE_GENAI_USE_VERTEXAI = use_vertex.value
         
         # Save to .env file
         env_content = (
@@ -240,6 +278,7 @@ async def SettingsPage(page: ft.Page):
             f"GCP_LOCATION={settings.GCP_LOCATION}\n"
             f"GEMINI_MODEL={settings.GEMINI_MODEL}\n"
             f"MCP_SERVER_URL={settings.MCP_SERVER_URL}\n"
+            f"GOOGLE_GENAI_USE_VERTEXAI={'True' if settings.GOOGLE_GENAI_USE_VERTEXAI else 'False'}\n"
         )
         with open(".env", "w") as f:
             f.write(env_content)
@@ -253,6 +292,11 @@ async def SettingsPage(page: ft.Page):
         ft.Text("Configure your credentials and project defaults.", color=SUB_TEXT_COLOR),
         ft.Container(
             content=ft.Column([
+                ft.Row([
+                    gitlab_status,
+                    ft.ElevatedButton("Connect to GitLab (OAuth)", icon=ft.Icons.LOCK_PERSON, on_click=start_gitlab_oauth),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(color=BORDER_COLOR),
                 gitlab_pat,
                 gcp_project,
                 gcp_location,

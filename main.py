@@ -11,6 +11,7 @@ from core.config import settings
 from core.events import get_gatekeeper_events, get_guardian_events
 from core.guardian import approve_rollback, pending_rollbacks
 from core.models import AlertPayload, RollbackApproval
+from core.auth_gitlab import register_client, get_auth_url, exchange_code_for_token, save_oauth_to_env
 from repoguard_agent.agent import invoke_root_agent
 from ui import main as flet_main
 
@@ -209,6 +210,46 @@ async def demo_trigger_alert(request: Request, background_tasks: BackgroundTasks
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+# --- GitLab OAuth Routes ---
+
+@app.get("/auth/login")
+async def auth_login(request: Request):
+    """Starts the GitLab OAuth flow, registering the client if needed."""
+    redirect_uri = str(request.url_for("auth_callback"))
+    
+    # Ensure we are registered - DCR is disabled as per hackathon instructions
+    # if not settings.GITLAB_CLIENT_ID:
+    #     try:
+    #         creds = await register_client(redirect_uri)
+    #         save_oauth_to_env(client_id=creds["client_id"], client_secret=creds["client_secret"])
+    #     except Exception as e:
+    #         logger.error("DCR Failed: %s", e)
+    #         raise HTTPException(status_code=500, detail=f"Registration failed: {e}")
+            
+    auth_url = get_auth_url(settings.GITLAB_CLIENT_ID, redirect_uri, state="repoguard-hackathon")
+    return {"login_url": auth_url}
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request, code: str, state: str):
+    """Handles the GitLab OAuth callback."""
+    redirect_uri = str(request.url_for("auth_callback"))
+    
+    try:
+        token_data = await exchange_code_for_token(
+            settings.GITLAB_CLIENT_ID, 
+            settings.GITLAB_CLIENT_SECRET, 
+            code, 
+            redirect_uri
+        )
+        save_oauth_to_env(
+            access_token=token_data["access_token"], 
+            refresh_token=token_data.get("refresh_token", "")
+        )
+        return HTMLResponse(content="<h1>Authenticated Successfully!</h1><p>You can close this window and return to RepoGuard.</p>")
+    except Exception as e:
+        logger.error("Token Exchange Failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Token exchange failed: {e}")
 
 app.mount("/", flet_fastapi.app(flet_main))
 

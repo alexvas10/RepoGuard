@@ -10,7 +10,7 @@ from ...mcp_config import get_gitlab_mcp_toolset
 from .prompt import agent_instructions
 
 guardian_agent = Agent(
-    model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-preview-05-20"),
+    model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
     name="guardian_agent",
     description="Performs forensic analysis on production alerts and provisions auto-remediation rollbacks.",
     instruction=agent_instructions,
