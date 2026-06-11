@@ -7,12 +7,13 @@ import httpx
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.genai import types
+from google.genai import types, errors as genai_errors
 from .config import settings
 
-# Limit concurrent Vertex AI calls so simultaneous webhooks queue rather than race.
-_SEMAPHORE = asyncio.Semaphore(5)
-_TRANSIENT_ERRORS = (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError)
+# Limit concurrent Vertex AI calls to 2 — prevents model errors under load when
+# multiple Gatekeeper + Guardian agents fire simultaneously.
+_SEMAPHORE = asyncio.Semaphore(2)
+_TRANSIENT_ERRORS = (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError, httpx.TimeoutException)
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,8 @@ async def invoke_agent(prompt: str, tools=None) -> str:
     tools are active, making Gemini treat it as a persistent rule rather than a hint.
     """
     mcp = MCPClient() if tools else None
-    adk_tools = []
+    # _tool_called[0] is reset each attempt and flipped True when Gemini calls the tool.
+    _tool_called = [False]
 
     if mcp:
         async def create_merge_request_note(
@@ -127,6 +129,7 @@ async def invoke_agent(prompt: str, tools=None) -> str:
             body: str,
         ) -> str:
             """Post a comment on a GitLab merge request."""
+            _tool_called[0] = True
             result = await mcp.call_tool("create_merge_request_note", {
                 "project_id": project_id,
                 "merge_request_iid": merge_request_iid,
@@ -135,23 +138,26 @@ async def invoke_agent(prompt: str, tools=None) -> str:
             logger.info("[MCP] create_merge_request_note → %s", result)
             return str(result)
 
-        adk_tools = [create_merge_request_note]
+    _max_attempts = 5
+    result = "(agent returned empty response)"
+    _adk_tools = [create_merge_request_note] if mcp else []
+    for attempt in range(_max_attempts):
+        _tool_called[0] = False
+        adk_tools = _adk_tools
 
-    agent = LlmAgent(
-        model=settings.GEMINI_MODEL,
-        name="repoguard",
-        instruction=_TOOL_INSTRUCTION if adk_tools else "",
-        tools=adk_tools,
-        generate_content_config=types.GenerateContentConfig(
-            temperature=0,
-            max_output_tokens=1024,
-        ),
-    )
+        agent = LlmAgent(
+            model=settings.GEMINI_MODEL,
+            name="repoguard",
+            instruction=_TOOL_INSTRUCTION if adk_tools else "",
+            tools=adk_tools,
+            generate_content_config=types.GenerateContentConfig(
+                temperature=0,
+                max_output_tokens=2048,
+            ),
+        )
+        session_service = InMemorySessionService()
+        runner = Runner(agent=agent, app_name="repoguard", session_service=session_service)
 
-    session_service = InMemorySessionService()
-    runner = Runner(agent=agent, app_name="repoguard", session_service=session_service)
-
-    for attempt in range(3):
         try:
             async with _SEMAPHORE:
                 session_id = str(uuid.uuid4())
@@ -173,14 +179,41 @@ async def invoke_agent(prompt: str, tools=None) -> str:
                                 if part.text:
                                     result = part.text
                                     break
-                return result
-        except _TRANSIENT_ERRORS as exc:
-            if attempt == 2:
+
+            # When tools are required, verify Gemini actually called the tool.
+            # If it skipped the tool call (returns text only under load), retry.
+            if mcp and not _tool_called[0]:
+                if attempt < _max_attempts - 1:
+                    logger.warning(
+                        "[invoke_agent] Gemini skipped required tool call (attempt %d/%d), retrying in 3s",
+                        attempt + 1, _max_attempts,
+                    )
+                    await asyncio.sleep(3)
+                    continue
+                else:
+                    logger.error(
+                        "[invoke_agent] Gemini never called required tool after %d attempts — returning text result",
+                        _max_attempts,
+                    )
+            return result
+
+        except Exception as exc:
+            is_quota = "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc)
+            is_transient = isinstance(exc, _TRANSIENT_ERRORS)
+            if not is_quota and not is_transient:
                 raise
-            wait = 2 ** attempt
+            if attempt == _max_attempts - 1:
+                logger.error(
+                    "[invoke_agent] failed after %d attempts, returning partial result: %s",
+                    _max_attempts, exc,
+                )
+                return result
+            # 429 quota resets within ~15s; transient network errors use exponential backoff.
+            wait = 15 if is_quota else 2 ** attempt
             logger.warning(
-                "[invoke_agent] transient error (attempt %d/3), retrying in %ds: %s",
-                attempt + 1, wait, exc,
+                "[invoke_agent] %s (attempt %d/%d), retrying in %ds",
+                "quota exhausted" if is_quota else "transient error",
+                attempt + 1, _max_attempts, wait,
             )
             await asyncio.sleep(wait)
 

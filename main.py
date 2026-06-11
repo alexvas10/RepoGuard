@@ -1,9 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from contextlib import asynccontextmanager
 
-import flet.fastapi as flet_fastapi
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
@@ -12,18 +10,11 @@ from core.events import get_gatekeeper_events, get_guardian_events
 from core.gatekeeper import process_mr
 from core.guardian import approve_rollback, pending_rollbacks, process_alert
 from core.models import AlertPayload, RollbackApproval
-from ui import main as flet_main
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await flet_fastapi.app_manager.start()
-    yield
-    await flet_fastapi.app_manager.shutdown()
-
-app = FastAPI(title="RepoGuard", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="RepoGuard", version="1.0.0")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -206,5 +197,133 @@ async def demo_trigger_alert(request: Request, background_tasks: BackgroundTasks
 async def health():
     return {"status": "ok"}
 
-app.mount("/", flet_fastapi.app(flet_main))
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(verdict: str = "", sort: str = "desc"):
+    ascending = sort == "asc"
+    gk_events, gd_events = await asyncio.gather(
+        get_gatekeeper_events(verdict_filter=verdict or None, ascending=ascending),
+        get_guardian_events(ascending=ascending),
+    )
+
+    def verdict_badge(v: str) -> str:
+        cfg = {
+            "APPROVED":     ("✅ APPROVED",     "#166534", "#86efac"),
+            "REJECTED":     ("🔴 REJECTED",     "#7f1d1d", "#fca5a5"),
+            "NEEDS_REVIEW": ("🟡 NEEDS REVIEW", "#713f12", "#fde68a"),
+        }
+        label, bg, fg = cfg.get(v.upper(), (v, "#1e293b", "#94a3b8"))
+        return (f'<span style="background:{bg};color:{fg};padding:2px 10px;'
+                f'border-radius:999px;font-size:0.75rem;font-weight:600">{label}</span>')
+
+    def status_badge(s: str) -> str:
+        bg, fg = ("#0c4a6e", "#7dd3fc") if "approved" in s else ("#4a1d96", "#c4b5fd")
+        return (f'<span style="background:{bg};color:{fg};padding:2px 10px;'
+                f'border-radius:999px;font-size:0.75rem;font-weight:600">{s}</span>')
+
+    def filter_link(label: str, v: str) -> str:
+        active = (v == verdict)
+        bg = "#3b82f6" if active else "#1e293b"
+        border = "#3b82f6" if active else "#334155"
+        params = f"verdict={v}&sort={sort}" if v else f"sort={sort}"
+        return (f'<a href="/?{params}" style="background:{bg};border:1px solid {border};'
+                f'color:#e2e8f0;padding:4px 12px;border-radius:6px;font-size:0.78rem;'
+                f'text-decoration:none;white-space:nowrap">{label}</a>')
+
+    sort_label = "↑ Oldest First" if ascending else "↓ Newest First"
+    sort_toggle = "asc" if not ascending else "desc"
+    sort_href = f"/?verdict={verdict}&sort={sort_toggle}"
+
+    gk_rows = "".join(
+        f"<tr>"
+        f"<td style='white-space:nowrap'>{e['ts']}</td>"
+        f"<td><a href='https://gitlab.com/alexvas10-group/sandbox-repoguard/-/merge_requests/{e['mr_iid']}' "
+        f"style='color:#7dd3fc;text-decoration:none' target='_blank'>!{e['mr_iid']}</a></td>"
+        f"<td style='max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>{e.get('mr_title','')}</td>"
+        f"<td>{verdict_badge(e['verdict'])}</td>"
+        f"</tr>"
+        for e in gk_events
+    ) or "<tr><td colspan='4' style='text-align:center;color:#475569;padding:2rem'>No events yet</td></tr>"
+
+    gd_rows = "".join(
+        f"<tr>"
+        f"<td style='white-space:nowrap'>{e['ts']}</td>"
+        f"<td><code style='color:#f472b6'>{e.get('commit_sha','')}</code></td>"
+        f"<td>{e.get('error_type','')}</td>"
+        f"<td><a href='https://gitlab.com/alexvas10-group/sandbox-repoguard/-/merge_requests/{e['mr_iid']}' "
+        f"style='color:#7dd3fc;text-decoration:none' target='_blank'>!{e['mr_iid']}</a></td>"
+        f"<td>{status_badge(e.get('status',''))}</td>"
+        f"</tr>"
+        for e in gd_events
+    ) or "<tr><td colspan='5' style='text-align:center;color:#475569;padding:2rem'>No events yet</td></tr>"
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RepoGuard</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}}
+  header{{padding:1.75rem 2rem;border-bottom:1px solid #1e293b;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}}
+  .logo{{font-size:1.4rem;font-weight:700;letter-spacing:-0.5px}}
+  .sub{{color:#64748b;font-size:0.85rem;margin-top:4px}}
+  .live{{display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;color:#4ade80}}
+  .dot{{width:8px;height:8px;border-radius:50%;background:#4ade80;animation:pulse 2s infinite}}
+  @keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:.4}}}}
+  .toolbar{{padding:1rem 2rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;border-bottom:1px solid #1e293b}}
+  .toolbar-label{{font-size:0.78rem;color:#64748b;margin-right:4px}}
+  .sort-btn{{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:4px 12px;border-radius:6px;font-size:0.78rem;text-decoration:none;white-space:nowrap}}
+  .sort-btn:hover{{border-color:#64748b}}
+  .divider{{color:#334155;font-size:0.9rem}}
+  .grid{{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;padding:1.5rem 2rem}}
+  @media(max-width:900px){{.grid{{grid-template-columns:1fr}}}}
+  .card{{background:#1e293b;border-radius:10px;padding:1.5rem;border:1px solid #334155}}
+  .card-title{{font-size:1rem;font-weight:600;margin-bottom:1.25rem}}
+  table{{width:100%;border-collapse:collapse;font-size:0.83rem}}
+  th{{text-align:left;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:.05em;padding:0 0.5rem 0.6rem;border-bottom:1px solid #334155}}
+  td{{padding:0.65rem 0.5rem;border-bottom:1px solid #0f172a;vertical-align:middle}}
+  tr:last-child td{{border-bottom:none}}
+  tr:hover td{{background:#243044}}
+  .footer{{text-align:center;padding:1.5rem;color:#334155;font-size:0.75rem}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="logo">🛡️ RepoGuard</div>
+    <div class="sub">Autonomous GitLab Code Guardian · Gemini 2.5 Flash · Google Cloud Run</div>
+  </div>
+  <div class="live"><span class="dot"></span>Live</div>
+</header>
+<div class="toolbar">
+  <span class="toolbar-label">Filter by verdict:</span>
+  {filter_link("All", "")}
+  {filter_link("✅ Approved", "APPROVED")}
+  {filter_link("🔴 Rejected", "REJECTED")}
+  {filter_link("🟡 Needs Review", "NEEDS_REVIEW")}
+  <span class="divider">|</span>
+  <a href="{sort_href}" class="sort-btn">{sort_label}</a>
+</div>
+<div class="grid">
+  <div class="card">
+    <div class="card-title">🛡️ Gatekeeper — MR Verdicts</div>
+    <table>
+      <thead><tr><th>Time</th><th>MR</th><th>Title</th><th>Verdict</th></tr></thead>
+      <tbody>{gk_rows}</tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-title">🚨 Guardian — Incident Response</div>
+    <table>
+      <thead><tr><th>Time</th><th>Commit</th><th>Error</th><th>MR</th><th>Status</th></tr></thead>
+      <tbody>{gd_rows}</tbody>
+    </table>
+  </div>
+</div>
+<div class="footer">Built for the Google Cloud Rapid Agent Hackathon · GitLab Partner Track</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
 

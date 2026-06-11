@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -96,16 +98,37 @@ def _pick_candidate(commits: list[dict], stack_files: list[str]) -> Optional[dic
 
 
 async def process_alert(project_id: int, payload: AlertPayload, commit_sha: str | None = None, base_url: str = "https://repoguard-926140091197.us-central1.run.app") -> str:
-    gitlab = GitLabClient()
-    await gitlab.ensure_labels(project_id)
+    try:
+        return await _process_alert(project_id, payload, commit_sha, base_url)
+    except Exception as exc:
+        logger.error("Guardian process_alert failed unhandled: %s", exc, exc_info=True)
+        return f"error: {exc}"
 
+
+async def _setup_rollback_branch(gitlab: GitLabClient, project_id: int, commit_sha: str, rollback_branch: str) -> dict:
+    """Create rollback branch and attempt revert. Independent of forensic analysis."""
+    logger.info("Creating rollback branch %s", rollback_branch)
+    await gitlab.create_branch(project_id, rollback_branch, ref=f"{commit_sha}~1")
+    return await gitlab.revert_commit(project_id, commit_sha, rollback_branch)
+
+
+async def _process_alert(project_id: int, payload: AlertPayload, commit_sha: str | None = None, base_url: str = "https://repoguard-926140091197.us-central1.run.app") -> str:
+    gitlab = GitLabClient()
+
+    # Resolve candidate commit. ensure_labels runs in parallel with commit lookup.
     if commit_sha:
-        candidate = await gitlab.get_commit(project_id, commit_sha)
+        _, candidate = await asyncio.gather(
+            gitlab.ensure_labels(project_id),
+            gitlab.get_commit(project_id, commit_sha),
+        )
     else:
         alert_dt = datetime.fromisoformat(payload.timestamp.replace("Z", "+00:00"))
         window_start = (alert_dt - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
         window_end = alert_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        commits = await gitlab.get_commits_in_window(project_id, window_start, window_end)
+        _, commits = await asyncio.gather(
+            gitlab.ensure_labels(project_id),
+            gitlab.get_commits_in_window(project_id, window_start, window_end),
+        )
         if not commits:
             logger.warning("No commits found in window for alert at %s", payload.timestamp)
             return "no commits found in window"
@@ -123,7 +146,6 @@ async def process_alert(project_id: int, payload: AlertPayload, commit_sha: str 
     if len(diff_text) > 6000:
         diff_text = diff_text[:6000] + "\n... [truncated]"
 
-    # Phase 1 — Gemini confirms causation (text only, no tools)
     forensic_prompt = FORENSIC_PROMPT.format(
         error_type=payload.error_type,
         service=payload.service,
@@ -134,19 +156,20 @@ async def process_alert(project_id: int, payload: AlertPayload, commit_sha: str 
         commit_timestamp=candidate.get("created_at", ""),
         commit_diff=diff_text,
     )
-    logger.info("Requesting forensic analysis for commit %s", commit_sha_short)
-    forensic_analysis = await invoke_agent(forensic_prompt)
+    rollback_branch = f"emergency/rollback-{commit_sha_short}-{int(time.time())}"
+
+    # Phase 1 + 2a in parallel: forensic AI analysis and rollback branch setup are independent.
+    # Branch creation (~1s) overlaps with the forensic AI call (~15s) — saves wall-clock time.
+    logger.info("Requesting forensic analysis and creating rollback branch in parallel")
+    forensic_analysis, revert_result = await asyncio.gather(
+        invoke_agent(forensic_prompt),
+        _setup_rollback_branch(gitlab, project_id, commit_sha, rollback_branch),
+    )
     logger.info("Forensic analysis: %s", forensic_analysis)
-
-    # Phase 2 — Core Engine creates rollback branch + MR via REST (need the MR IID)
-    rollback_branch = f"emergency/rollback-{commit_sha_short}"
-    logger.info("Creating rollback branch %s", rollback_branch)
-    await gitlab.create_branch(project_id, rollback_branch, ref=f"{commit_sha}~1")
-
-    revert_result = await gitlab.revert_commit(project_id, commit_sha, rollback_branch)
     if "error" in revert_result:
         logger.warning("revert_commit conflict (%s) — branch points to parent commit", revert_result["error"])
 
+    # Phase 2b — Create the rollback MR (needs forensic result for description)
     mr_title = f"[AUTO-REMEDIATION] Rollback {commit_sha_short} — {payload.error_type}"
     mr_description = (
         f"## 🚨 RepoGuard Auto-Remediation\n\n"
@@ -208,12 +231,20 @@ async def approve_rollback(project_id: int, mr_iid: int, token: str) -> str:
         return "token does not match the specified MR"
 
     gitlab = GitLabClient()
-    await gitlab.update_mr(
-        project_id,
-        mr_iid,
-        draft=False,
-        add_labels="repoguard::approved-rollback",
-    )
+    for attempt in range(3):
+        try:
+            await gitlab.update_mr(
+                project_id,
+                mr_iid,
+                draft=False,
+                add_labels="repoguard::approved-rollback",
+            )
+            break
+        except Exception as exc:
+            if attempt == 2:
+                logger.error("Failed to approve rollback MR !%s after 3 attempts: %s", mr_iid, exc)
+                return f"Failed to update MR !{mr_iid}: {exc}"
+            await asyncio.sleep(2 ** attempt)
     del pending_rollbacks[token]
     await update_guardian_status(mr_iid, "approved — ready to merge")
     logger.info("Rollback MR !%s approved and marked ready to merge", mr_iid)

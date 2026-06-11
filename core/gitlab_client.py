@@ -8,11 +8,11 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 _labels_initialized: set[int] = set()
-_HTTP_TIMEOUT = 30.0
-_TRANSIENT = (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError)
+_HTTP_TIMEOUT = 60.0
+_TRANSIENT = (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError, httpx.TimeoutException)
 
 
-async def _retry(coro_fn, *args, attempts: int = 3, **kwargs):
+async def _retry(coro_fn, *args, attempts: int = 5, **kwargs):
     """Call an async function with exponential backoff on transient httpx errors."""
     for attempt in range(attempts):
         try:
